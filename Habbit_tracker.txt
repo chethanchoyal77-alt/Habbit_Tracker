@@ -1,0 +1,373 @@
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:intl/intl.dart';
+
+void main() {
+  runApp(const HabitTrackerApp());
+}
+
+class HabitTrackerApp extends StatelessWidget {
+  const HabitTrackerApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Habit Tracker',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+      ),
+      home: const HabitTrackerScreen(),
+      debugShowCheckedModeBanner: false,
+    );
+  }
+}
+
+class HabitTrackerScreen extends StatefulWidget {
+  const HabitTrackerScreen({super.key});
+
+  @override
+  State<HabitTrackerScreen> createState() => _HabitTrackerScreenState();
+}
+
+class _HabitTrackerScreenState extends State<HabitTrackerScreen> {
+  List<Habit> _habits = [];
+  final TextEditingController _habitController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHabits();
+  }
+
+  Future<void> _loadHabits() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? habitsJson = prefs.getString('habits');
+    if (habitsJson != null) {
+      final List<dynamic> decoded = jsonDecode(habitsJson);
+      setState(() {
+        _habits = decoded.map((item) => Habit.fromJson(item)).toList();
+      });
+    }
+  }
+
+  Future<void> _saveHabits() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String habitsJson = jsonEncode(_habits.map((h) => h.toJson()).toList());
+    await prefs.setString('habits', habitsJson);
+  }
+
+  void _addHabit() {
+    if (_habitController.text.trim().isEmpty) return;
+    setState(() {
+      _habits.add(Habit(
+        name: _habitController.text.trim(),
+        createdDate: DateTime.now(),
+      ));
+      _habitController.clear();
+    });
+    _saveHabits();
+  }
+
+  void _toggleHabit(int index, DateTime date) {
+    setState(() {
+      _habits[index].toggleDate(date);
+    });
+    _saveHabits();
+  }
+
+  void _deleteHabit(int index) {
+    setState(() {
+      _habits.removeAt(index);
+    });
+    _saveHabits();
+  }
+
+  void _showAddHabitDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add New Habit'),
+        content: TextField(
+          controller: _habitController,
+          decoration: const InputDecoration(
+            hintText: 'Enter habit name',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) {
+            _addHabit();
+            Navigator.pop(context);
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              _addHabit();
+              Navigator.pop(context);
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Habit Tracker'),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+        elevation: 2,
+      ),
+      body: _habits.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.hourglass_empty,
+                    size: 80,
+                    color: Colors.grey.shade400,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No habits yet.',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Start tracking your daily habits!',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: _showAddHabitDialog,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                    ),
+                    child: const Text('Add Your First Habit'),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _habits.length,
+              itemBuilder: (context, index) {
+                final habit = _habits[index];
+                return HabitCard(
+                  habit: habit,
+                  onToggle: (date) => _toggleHabit(index, date),
+                  onDelete: () => _deleteHabit(index),
+                );
+              },
+            ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddHabitDialog,
+        child: const Icon(Icons.add),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+    );
+  }
+}
+
+class Habit {
+  String name;
+  DateTime createdDate;
+  List<String> completedDates;
+
+  Habit({
+    required this.name,
+    required this.createdDate,
+    this.completedDates = const [],
+  });
+
+  bool isCompletedOn(DateTime date) {
+    final dateStr = DateFormat('yyyy-MM-dd').format(date);
+    return completedDates.contains(dateStr);
+  }
+
+  void toggleDate(DateTime date) {
+    final dateStr = DateFormat('yyyy-MM-dd').format(date);
+    if (completedDates.contains(dateStr)) {
+      completedDates.remove(dateStr);
+    } else {
+      completedDates.add(dateStr);
+    }
+  }
+
+  int get streak {
+    if (completedDates.isEmpty) return 0;
+    var streak = 0;
+    var date = DateTime.now();
+    while (true) {
+      final dateStr = DateFormat('yyyy-MM-dd').format(date);
+      if (completedDates.contains(dateStr)) {
+        streak++;
+        date = date.subtract(const Duration(days: 1));
+      } else {
+        break;
+      }
+    }
+    return streak;
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'createdDate': createdDate.toIso8601String(),
+      'completedDates': completedDates,
+    };
+  }
+
+  factory Habit.fromJson(Map<String, dynamic> json) {
+    return Habit(
+      name: json['name'],
+      createdDate: DateTime.parse(json['createdDate']),
+      completedDates: List<String>.from(json['completedDates']),
+    );
+  }
+}
+
+class HabitCard extends StatelessWidget {
+  final Habit habit;
+  final Function(DateTime) onToggle;
+  final VoidCallback onDelete;
+
+  const HabitCard({
+    super.key,
+    required this.habit,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final weekDays = List.generate(7, (i) => now.subtract(Duration(days: 6 - i)));
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    habit.name,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text('🔥', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${habit.streak} day streak',
+                        style: TextStyle(
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: onDelete,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: weekDays.map((date) {
+                final isCompleted = habit.isCompletedOn(date);
+                final isToday = DateFormat('yyyy-MM-dd').format(date) ==
+                    DateFormat('yyyy-MM-dd').format(now);
+                return GestureDetector(
+                  onTap: () => onToggle(date),
+                  child: Column(
+                    children: [
+                      Text(
+                        DateFormat('E').format(date).substring(0, 2),
+                        style: TextStyle(
+                          fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                          color: isToday ? Colors.blue : Colors.grey.shade600,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isCompleted ? Colors.green : Colors.grey.shade200,
+                          border: isToday
+                              ? Border.all(color: Colors.blue, width: 3)
+                              : null,
+                        ),
+                        child: Center(
+                          child: Text(
+                            DateFormat('d').format(date),
+                            style: TextStyle(
+                              color: isCompleted ? Colors.white : Colors.grey.shade700,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+            Divider(color: Colors.grey.shade200),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Created: ${DateFormat('MMM d, yyyy').format(habit.createdDate)}',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+                Text(
+                  '${habit.completedDates.length} days completed',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
